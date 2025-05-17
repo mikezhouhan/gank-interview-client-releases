@@ -44,6 +44,12 @@ jobs:
           submodules: false
           set-safe-directory: true
 
+      - name: Print Cloned Commit ID
+        shell: bash
+        run: |
+          echo "Cloned commit ID from private repository (mikezhouhan/Gank-Interview):"
+          git rev-parse HEAD
+
       - name: Get release tag
         id: get-tag
         shell: bash

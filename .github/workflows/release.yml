@@ -17,7 +17,7 @@ permissions:
 jobs:
   release:
     runs-on: ${{ matrix.os }}
-
+    environment: default
     strategy:
       matrix:
         os: [macos-latest, windows-latest] # Removed ubuntu-latest
@@ -29,6 +29,15 @@ jobs:
         with:
           repository: mikezhouhan/Gank-Interview
           token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          persist-credentials: true
+          clean: true
+          sparse-checkout-cone-mode: true
+          fetch-depth: 1
+          fetch-tags: true
+          show-progress: true
+          lfs: false
+          submodules: false
+          set-safe-directory: true
 
       - name: Get release tag
         id: get-tag

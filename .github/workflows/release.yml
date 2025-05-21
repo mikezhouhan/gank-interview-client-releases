@@ -77,13 +77,67 @@ jobs:
         if: matrix.os == 'macos-latest'
         run: npm run package-mac
         env:
-        #   CSC_LINK: ${{ secrets.CSC_LINK }}
-        #   CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
-        #   APPLE_ID: ${{ vars.APPLE_ID }}
-        #   APPLE_APP_SPECIFIC_PASSWORD: ${{ vars.APPLE_APP_SPECIFIC_PASSWORD }}
-        #   APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
-        #   RENDERER_VITE_AIHUBMIX_SECRET: ${{ vars.RENDERER_VITE_AIHUBMIX_SECRET }}
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit app for notarization
+        if: matrix.os == 'macos-latest'
+        run: |
+          SUBMISSION_OUTPUT_ARM64=$(xcrun notarytool submit --force release/GankInterview-*-arm64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+          echo "$SUBMISSION_OUTPUT_ARM64"
+          SUBMISSION_ID_ARM64=$(echo "$SUBMISSION_OUTPUT_ARM64" | grep "id:" | head -1 | awk '{print $2}')
+          echo "SUBMISSION_ID_ARM64=$SUBMISSION_ID_ARM64" >> $GITHUB_ENV
+          SUBMISSION_OUTPUT_X64=$(xcrun notarytool submit --force release/GankInterview-*-x64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+          echo "$SUBMISSION_OUTPUT_X64"
+          SUBMISSION_ID_X64=$(echo "$SUBMISSION_OUTPUT_X64" | grep "id:" | head -1 | awk '{print $2}')
+          echo "SUBMISSION_ID_X64=$SUBMISSION_ID_X64" >> $GITHUB_ENV
+      
+      - name: Check notarization status
+        if: matrix.os == 'macos-latest'
+        run: |
+          MAX_ATTEMPTS=10
+          ATTEMPT=1
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STATUS_OUTPUT_ARM64=$(xcrun notarytool info $SUBMISSION_ID_ARM64 --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+            echo "$STATUS_OUTPUT_ARM64"
+            STATUS_ARM64=$(echo "$STATUS_OUTPUT_ARM64" | grep "status:" |  sed 's/status: //'| xargs)
+            if [ "$STATUS_ARM64" = "Accepted" ]; then
+              echo "Notarization succeeded!"
+              break
+            elif [ "$STATUS_ARM64" = "In Progress" ]; then
+              echo "Notarization in progress, retrying in 600 seconds..."
+              sleep 600
+              ATTEMPT=$((ATTEMPT + 1))
+            else
+              echo "Notarization failed with status: $STATUS_ARM64"
+              exit 1
+            fi
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "Max attempts reached, notarization still in progress."
+              exit 1
+            fi
+          done
+          ATTEMPT=1
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STATUS_OUTPUT_X64=$(xcrun notarytool info $SUBMISSION_ID_X64 --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+            echo "$STATUS_OUTPUT_X64"
+            STATUS_X64=$(echo "$STATUS_OUTPUT_X64" | grep "status:" |  sed 's/status: //'| xargs)
+            if [ "$STATUS_X64" = "Accepted" ]; then
+              echo "Notarization succeeded!"
+              break
+            elif [ "$STATUS_X64" = "In Progress" ]; then
+              echo "Notarization in progress, retrying in 600 seconds..."
+              sleep 600
+              ATTEMPT=$((ATTEMPT + 1))
+            else
+              echo "Notarization failed with status: $STATUS_X64"
+              exit 1
+            fi
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "Max attempts reached, notarization still in progress."
+              exit 1
+            fi
+          done
 
       - name: Build Windows
         if: matrix.os == 'windows-latest'

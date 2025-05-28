@@ -1,0 +1,16 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../coder"
+		},
+		{
+			"path": "../Gank-Interview"
+		},
+		{
+			"path": "../system-audio-loopback"
+		}
+	]
+}

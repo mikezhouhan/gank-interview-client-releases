@@ -74,13 +74,24 @@ jobs:
 
       # Removed Build Linux step
 
-      - name: Build Mac
+      - name: Build Mac x64
         if: matrix.os == 'macos-latest'
-        run: npm run package-mac
+        run: npm run build && npx electron-builder build --mac --x64
+        continue-on-error: false
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build Mac arm64
+        if: matrix.os == 'macos-latest'
+        run: npx electron-builder build --mac --arm64
+        continue-on-error: false
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Submit app for notarization
         if: matrix.os == 'macos-latest'
         run: |

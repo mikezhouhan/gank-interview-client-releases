@@ -28,6 +28,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: mikezhouhan/Gank-Interview
+          ref: feature/commandbar-refactor
           token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
           persist-credentials: true
           clean: true

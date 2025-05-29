@@ -55,28 +55,33 @@ jobs:
         with:
           node-version: 20
 
-      - name: Get npm cache directory path
-        id: npm-cache-dir-path
-        run: echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 8
+          run_install: false
 
-      - name: Cache npm dependencies
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
         uses: actions/cache@v4
         with:
-          path: |
-            ${{ steps.npm-cache-dir-path.outputs.dir }}
-            node_modules
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
           restore-keys: |
-            ${{ runner.os }}-npm-
+            ${{ runner.os }}-pnpm-store-
 
       - name: Install Dependencies
-        run: npm install --legacy-peer-deps # Added --legacy-peer-deps based on common Electron/Vite project needs, remove if not necessary
+        run: pnpm install --frozen-lockfile
 
       # Removed Build Linux step
 
       - name: Build Mac
         if: matrix.os == 'macos-latest'
-        run: npm run build && npx electron-builder build --mac
+        run: pnpm run build && pnpm exec electron-builder build --mac
         continue-on-error: false
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -95,7 +100,7 @@ jobs:
           echo "$SUBMISSION_OUTPUT_X64"
           SUBMISSION_ID_X64=$(echo "$SUBMISSION_OUTPUT_X64" | grep "id:" | head -1 | awk '{print $2}')
           echo "SUBMISSION_ID_X64=$SUBMISSION_ID_X64" >> $GITHUB_ENV
-      
+
       - name: Check notarization status
         if: matrix.os == 'macos-latest'
         run: |
@@ -145,7 +150,7 @@ jobs:
 
       - name: Build Windows
         if: matrix.os == 'windows-latest'
-        run: npm run package-win
+        run: pnpm run package-win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

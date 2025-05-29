@@ -55,33 +55,37 @@ jobs:
         with:
           node-version: 20
 
-      - name: Install pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          version: 8
-          run_install: false
-
-      - name: Get pnpm store directory
+      - name: Remove pnpm lockfile to avoid conflicts
         shell: bash
         run: |
-          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+          if [ -f "pnpm-lock.yaml" ]; then
+            echo "Removing pnpm-lock.yaml to prevent electron-builder from using pnpm"
+            rm pnpm-lock.yaml
+          fi
 
-      - name: Setup pnpm cache
+      - name: Get npm cache directory path
+        id: npm-cache-dir-path
+        shell: bash
+        run: echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
+
+      - name: Cache npm dependencies
         uses: actions/cache@v4
         with:
-          path: ${{ env.STORE_PATH }}
-          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          path: |
+            ${{ steps.npm-cache-dir-path.outputs.dir }}
+            node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-pnpm-store-
+            ${{ runner.os }}-npm-
 
       - name: Install Dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm install --legacy-peer-deps
 
       # Removed Build Linux step
 
       - name: Build Mac
         if: matrix.os == 'macos-latest'
-        run: pnpm run build && pnpm exec electron-builder build --mac
+        run: npm run build && npx electron-builder build --mac
         continue-on-error: false
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
@@ -150,7 +154,7 @@ jobs:
 
       - name: Build Windows
         if: matrix.os == 'windows-latest'
-        run: pnpm run package-win
+        run: npm run package-win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

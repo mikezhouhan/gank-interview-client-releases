@@ -7,6 +7,10 @@ on:
         description: 'Release tag (e.g. v1.0.0)'
         required: true
         default: 'v0.0.1'
+      branch:
+        description: 'Branch to checkout from private repository (e.g., dev, main)'
+        required: true
+        default: 'dev'
   push:
     tags:
       - v*.*.*
@@ -29,6 +33,7 @@ jobs:
         with:
           repository: mikezhouhan/Gank-Interview
           token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
           persist-credentials: true
           clean: true
           sparse-checkout-cone-mode: true
@@ -38,6 +43,12 @@ jobs:
           lfs: false
           submodules: false
           set-safe-directory: true
+
+      - name: Print Cloned Commit ID
+        shell: bash
+        run: |
+          echo "Cloned commit ID from private repository (mikezhouhan/Gank-Interview):"
+          git rev-parse HEAD
 
       - name: Get release tag
         id: get-tag

@@ -5,7 +5,6 @@ name: Upload to Tencent Cloud COS
 # - TENCENT_SECRET_KEY: 腾讯云API密钥Key
 # - TENCENT_COS_BUCKET: 腾讯云存储桶名称
 # - TENCENT_COS_REGION: 腾讯云存储区域 (如: ap-beijing, ap-shanghai等)
-# - TENCENT_COS_DIRECTORY: 腾讯云存储目录名称 (如: releases)
 
 on:
   workflow_dispatch:
@@ -22,6 +21,8 @@ jobs:
   upload-to-cos:
     runs-on: ubuntu-latest
     environment: default
+    env:
+      COS_DIRECTORY: "auto_updater"
     
     steps:
       - name: Setup Node.js
@@ -65,30 +66,30 @@ jobs:
           TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
           
           # Check if the target directory exists and backup it
-          echo "Checking if directory ${{ secrets.TENCENT_COS_DIRECTORY }} exists..."
-          if coscmd list ${{ secrets.TENCENT_COS_DIRECTORY }}/ > /dev/null 2>&1; then
-            echo "Directory ${{ secrets.TENCENT_COS_DIRECTORY }} exists, creating backup..."
+          echo "Checking if directory ${{ env.COS_DIRECTORY }} exists..."
+          if coscmd list ${{ env.COS_DIRECTORY }}/ > /dev/null 2>&1; then
+            echo "Directory ${{ env.COS_DIRECTORY }} exists, creating backup..."
             
             # Create backup by copying the entire directory
-            echo "Creating backup: ${{ secrets.TENCENT_COS_DIRECTORY }}_backup_${TIMESTAMP}"
-            coscmd copy -r ${{ secrets.TENCENT_COS_DIRECTORY }}/ ${{ secrets.TENCENT_COS_DIRECTORY }}_backup_${TIMESTAMP}/
+            echo "Creating backup: ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"
+            coscmd copy -r ${{ env.COS_DIRECTORY }}/ ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}/
             
             # Delete original directory after backup
-            echo "Deleting original directory ${{ secrets.TENCENT_COS_DIRECTORY }}..."
-            coscmd delete -r ${{ secrets.TENCENT_COS_DIRECTORY }}/
+            echo "Deleting original directory ${{ env.COS_DIRECTORY }}..."
+            coscmd delete -r ${{ env.COS_DIRECTORY }}/
           else
-            echo "Directory ${{ secrets.TENCENT_COS_DIRECTORY }} does not exist, proceeding with upload..."
+            echo "Directory ${{ env.COS_DIRECTORY }} does not exist, proceeding with upload..."
           fi
           
-          # Upload new files to TENCENT_COS_DIRECTORY
+          # Upload new files to COS_DIRECTORY
           cd downloads
           for file in *; do
             if [[ -f "$file" ]]; then
-              echo "Uploading $file to ${{ secrets.TENCENT_COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
-              coscmd upload "$file" "${{ secrets.TENCENT_COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
+              echo "Uploading $file to ${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
+              coscmd upload "$file" "${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
             fi
           done
           
           echo "Upload completed successfully!"
-          echo "Files uploaded to: ${{ secrets.TENCENT_COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/"
-          echo "Backup directory (if created): ${{ secrets.TENCENT_COS_DIRECTORY }}_backup_${TIMESTAMP}"
+          echo "Files uploaded to: ${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/"
+          echo "Backup directory (if created): ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"

@@ -31,8 +31,8 @@ jobs:
 
       - name: Install dependencies
         run: |
-          npm install -g @tencent-cloud/cli
-          npm install axios
+          # Install coscmd for file operations
+          pip install coscmd
 
       - name: Download release assets
         env:
@@ -56,18 +56,8 @@ jobs:
           ls -la downloads/
         
       
-      - name: Configure Tencent Cloud CLI
-        run: |
-          # Configure Tencent Cloud CLI
-          tccli configure set secretId ${{ secrets.TENCENT_SECRET_ID }}
-          tccli configure set secretKey ${{ secrets.TENCENT_SECRET_KEY }}
-          tccli configure set region ${{ secrets.TENCENT_COS_REGION }}
-
       - name: Upload to Tencent Cloud COS
         run: |
-          # Install coscmd for easier file operations
-          pip install coscmd
-          
           # Configure coscmd
           coscmd config -a ${{ secrets.TENCENT_SECRET_ID }} -s ${{ secrets.TENCENT_SECRET_KEY }} -b ${{ secrets.TENCENT_COS_BUCKET }} -r ${{ secrets.TENCENT_COS_REGION }}
           

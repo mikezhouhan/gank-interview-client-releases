@@ -32,94 +32,91 @@ jobs:
 
       - name: Install dependencies
         run: |
-          # Install coscmd for file operations
+          # 安装 coscmd 用于文件操作
           pip install coscmd
 
       - name: Download release assets
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Create downloads directory
+          # 创建下载目录
           mkdir -p downloads
-          
-          # Get release info
+
+          # 获取发布信息
           RELEASE_INFO=$(curl -H "Authorization: token $GH_TOKEN" \
             "https://api.github.com/repos/${{ github.repository }}/releases/tags/${{ github.event.inputs.release_tag }}")
-          
-          # Parse and download each asset
+
+          # 解析并下载每个资源文件
           echo "$RELEASE_INFO" | jq -r '.assets[] | select(.name | test("\\.(exe|dmg|zip|yml|blockmap)$")) | .browser_download_url + " " + .name' | while read url filename; do
-            echo "Downloading $filename from $url"
+            echo "正在下载 $filename 从 $url"
             curl -L -H "Authorization: token $GH_TOKEN" "$url" -o "downloads/$filename"
           done
-          
-          # List downloaded files
-          echo "Downloaded files:"
+
+          # 列出已下载的文件
+          echo "已下载的文件:"
           ls -la downloads/
         
       
       - name: Upload to Tencent Cloud COS
         run: |
-          # Configure coscmd
+          # 配置 coscmd
           coscmd config -a ${{ secrets.TENCENT_SECRET_ID }} -s ${{ secrets.TENCENT_SECRET_KEY }} -b ${{ secrets.TENCENT_COS_BUCKET }} -r ${{ secrets.TENCENT_COS_REGION }}
 
-          # Get current timestamp for backup
-          TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-
-          # Check if the target directory exists
-          echo "Checking if directory ${{ env.COS_DIRECTORY }} exists..."
+          # 检查目标目录是否存在并删除其中的文件
+          echo "检查目录 ${{ env.COS_DIRECTORY }} 是否存在..."
           if coscmd list ${{ env.COS_DIRECTORY }}/ > /dev/null 2>&1; then
-            echo "Directory ${{ env.COS_DIRECTORY }} exists, creating backup..."
+            echo "目录 ${{ env.COS_DIRECTORY }} 存在，正在删除其中的文件..."
 
-            # Simple backup approach: rename the entire directory
-            echo "Creating backup by renaming directory to: ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"
-
-            # Download the entire directory first
-            mkdir -p backup_temp
-            echo "Downloading existing directory for backup..."
-            coscmd download -r ${{ env.COS_DIRECTORY }}/ backup_temp/ || {
-              echo "Warning: Download failed, but continuing with upload..."
+            # 获取 COS_DIRECTORY 中的文件和子目录列表
+            coscmd list ${{ env.COS_DIRECTORY }}/ > file_list.txt 2>/dev/null || {
+              echo "警告：无法列出目录中的文件"
             }
 
-            # If download was successful, upload to backup location
-            if [ -d "backup_temp/${{ env.COS_DIRECTORY }}" ]; then
-              echo "Re-uploading to backup location..."
-              coscmd upload -r backup_temp/${{ env.COS_DIRECTORY }}/ ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}/ || {
-                echo "Warning: Backup upload failed, but continuing..."
-              }
-            fi
+            # 删除 COS_DIRECTORY 中的每个文件和子目录
+            while IFS= read -r line; do
+              if [[ "$line" =~ ^[[:space:]]*[0-9]+ ]] || [[ "$line" =~ ^[[:space:]]*DIR ]]; then
+                # 从行中提取文件/目录路径
+                item_path=$(echo "$line" | awk '{print $NF}')
+                if [[ "$item_path" == *"${{ env.COS_DIRECTORY }}/"* ]] && [[ "$item_path" != "${{ env.COS_DIRECTORY }}/" ]]; then
+                  echo "正在删除: $item_path"
+                  if [[ "$item_path" == *"/" ]]; then
+                    # 这是一个目录
+                    coscmd delete -r "$item_path" || echo "警告：删除 $item_path 失败"
+                  else
+                    # 这是一个文件
+                    coscmd delete "$item_path" || echo "警告：删除 $item_path 失败"
+                  fi
+                fi
+              fi
+            done < file_list.txt
 
-            # Clean up temp directory
-            rm -rf backup_temp
-
-            # Delete original directory
-            echo "Deleting original directory ${{ env.COS_DIRECTORY }}..."
-            coscmd delete -r ${{ env.COS_DIRECTORY }}/ || {
-              echo "Warning: Failed to delete original directory, files may be overwritten"
-            }
+            rm -f file_list.txt
           else
-            echo "Directory ${{ env.COS_DIRECTORY }} does not exist, proceeding with upload..."
+            echo "目录 ${{ env.COS_DIRECTORY }} 不存在，将在上传时创建..."
           fi
 
-          # Upload new files to COS_DIRECTORY
-          echo "Starting upload of new files..."
+          # 上传新文件到 COS_DIRECTORY 的子目录中
+          echo "开始上传新文件..."
           cd downloads
 
-          # Check if there are any files to upload
+          # 检查是否有文件需要上传
           if [ ! "$(ls -A .)" ]; then
-            echo "No files found in downloads directory!"
+            echo "下载目录中没有找到文件！"
             exit 1
           fi
 
+          # 创建子目录路径: COS_DIRECTORY/latest/
+          UPLOAD_PATH="${{ env.COS_DIRECTORY }}/latest"
+
           for file in *; do
             if [[ -f "$file" ]]; then
-              echo "Uploading $file to ${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
-              coscmd upload "$file" "${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file" || {
-                echo "Error: Failed to upload $file"
+              echo "正在上传 $file 到 $UPLOAD_PATH/$file"
+              coscmd upload "$file" "$UPLOAD_PATH/$file" || {
+                echo "错误：上传 $file 失败"
                 exit 1
               }
             fi
           done
 
-          echo "Upload completed successfully!"
-          echo "Files uploaded to: ${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/"
-          echo "Backup directory (if created): ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"
+          echo "上传完成！"
+          echo "文件已上传到: $UPLOAD_PATH/"

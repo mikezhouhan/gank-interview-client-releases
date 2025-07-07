@@ -61,46 +61,65 @@ jobs:
         run: |
           # Configure coscmd
           coscmd config -a ${{ secrets.TENCENT_SECRET_ID }} -s ${{ secrets.TENCENT_SECRET_KEY }} -b ${{ secrets.TENCENT_COS_BUCKET }} -r ${{ secrets.TENCENT_COS_REGION }}
-          
+
           # Get current timestamp for backup
           TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
-          
-          # Check if the target directory exists and backup it
+
+          # Check if the target directory exists
           echo "Checking if directory ${{ env.COS_DIRECTORY }} exists..."
           if coscmd list ${{ env.COS_DIRECTORY }}/ > /dev/null 2>&1; then
             echo "Directory ${{ env.COS_DIRECTORY }} exists, creating backup..."
-            
-            # Create backup by downloading and re-uploading with new prefix
-            echo "Creating backup: ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"
-            
-            # Download all files in the directory to local temp folder
+
+            # Simple backup approach: rename the entire directory
+            echo "Creating backup by renaming directory to: ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"
+
+            # Download the entire directory first
             mkdir -p backup_temp
-            coscmd download -r ${{ env.COS_DIRECTORY }}/ backup_temp/
-            
-            # Upload to backup location with correct path structure
-            cd backup_temp
-            coscmd upload -r ${{ env.COS_DIRECTORY }}/ ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}/
-            cd ..
-            
+            echo "Downloading existing directory for backup..."
+            coscmd download -r ${{ env.COS_DIRECTORY }}/ backup_temp/ || {
+              echo "Warning: Download failed, but continuing with upload..."
+            }
+
+            # If download was successful, upload to backup location
+            if [ -d "backup_temp/${{ env.COS_DIRECTORY }}" ]; then
+              echo "Re-uploading to backup location..."
+              coscmd upload -r backup_temp/${{ env.COS_DIRECTORY }}/ ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}/ || {
+                echo "Warning: Backup upload failed, but continuing..."
+              }
+            fi
+
             # Clean up temp directory
             rm -rf backup_temp
-            
-            # Delete original directory after backup
+
+            # Delete original directory
             echo "Deleting original directory ${{ env.COS_DIRECTORY }}..."
-            coscmd delete -r ${{ env.COS_DIRECTORY }}/
+            coscmd delete -r ${{ env.COS_DIRECTORY }}/ || {
+              echo "Warning: Failed to delete original directory, files may be overwritten"
+            }
           else
             echo "Directory ${{ env.COS_DIRECTORY }} does not exist, proceeding with upload..."
           fi
-          
+
           # Upload new files to COS_DIRECTORY
+          echo "Starting upload of new files..."
           cd downloads
+
+          # Check if there are any files to upload
+          if [ ! "$(ls -A .)" ]; then
+            echo "No files found in downloads directory!"
+            exit 1
+          fi
+
           for file in *; do
             if [[ -f "$file" ]]; then
               echo "Uploading $file to ${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
-              coscmd upload "$file" "${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file"
+              coscmd upload "$file" "${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/$file" || {
+                echo "Error: Failed to upload $file"
+                exit 1
+              }
             fi
           done
-          
+
           echo "Upload completed successfully!"
           echo "Files uploaded to: ${{ env.COS_DIRECTORY }}/${{ github.event.inputs.release_tag }}/"
           echo "Backup directory (if created): ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"

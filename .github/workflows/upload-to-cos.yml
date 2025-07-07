@@ -214,39 +214,29 @@ jobs:
           if coscmd list ${{ env.COS_DIRECTORY }}/ > /dev/null 2>&1; then
             echo "目录 ${{ env.COS_DIRECTORY }} 存在，正在删除其中的文件..."
 
-            # 获取 COS_DIRECTORY 中的文件和子目录列表
-            coscmd list ${{ env.COS_DIRECTORY }}/ > ../file_list.txt 2>/dev/null || {
-              echo "警告：无法列出目录中的文件"
-            }
+            # 直接删除整个目录及其内容，然后重新创建
+            echo "正在删除目录 ${{ env.COS_DIRECTORY }} 及其所有内容..."
+            coscmd delete -r -f ${{ env.COS_DIRECTORY }}/ || {
+              echo "警告：删除目录失败，尝试逐个删除文件..."
 
-            # 删除 COS_DIRECTORY 中的每个文件和子目录
-            while IFS= read -r line; do
-              if [[ "$line" =~ ^[[:space:]]*[0-9]+ ]] || [[ "$line" =~ ^[[:space:]]*DIR ]]; then
-                # 从行中提取文件/目录路径
-                item_path=$(echo "$line" | awk '{print $NF}')
-                if [[ "$item_path" == *"${{ env.COS_DIRECTORY }}/"* ]] && [[ "$item_path" != "${{ env.COS_DIRECTORY }}/" ]]; then
-                  echo "正在删除: $item_path"
-                  if [[ "$item_path" == *"/" ]]; then
-                    # 这是一个目录
-                    coscmd delete -r "$item_path" || echo "警告：删除 $item_path 失败"
-                  else
-                    # 这是一个文件
-                    coscmd delete "$item_path" || echo "警告：删除 $item_path 失败"
-                  fi
+              # 备用方案：逐个删除文件
+              coscmd list ${{ env.COS_DIRECTORY }}/ | grep -v "^DIR" | awk '{print $NF}' | while read -r file_path; do
+                if [[ -n "$file_path" && "$file_path" != "${{ env.COS_DIRECTORY }}/" ]]; then
+                  echo "正在删除文件: $file_path"
+                  coscmd delete "$file_path" || echo "警告：删除 $file_path 失败"
                 fi
-              fi
-            done < ../file_list.txt
-
-            rm -f ../file_list.txt
+              done
+            }
+            echo "目录清理完成"
           else
             echo "目录 ${{ env.COS_DIRECTORY }} 不存在，将在上传时创建..."
           fi
 
-          # 上传新文件到 COS_DIRECTORY 的子目录中
+          # 上传新文件直接到 COS_DIRECTORY 目录
           echo "开始上传新文件..."
 
-          # 创建子目录路径: COS_DIRECTORY/latest/
-          UPLOAD_PATH="${{ env.COS_DIRECTORY }}/latest"
+          # 直接上传到 COS_DIRECTORY 目录，不创建子目录
+          UPLOAD_PATH="${{ env.COS_DIRECTORY }}"
           UPLOAD_COUNT=0
 
           for file in *; do

@@ -70,9 +70,20 @@ jobs:
           if coscmd list ${{ env.COS_DIRECTORY }}/ > /dev/null 2>&1; then
             echo "Directory ${{ env.COS_DIRECTORY }} exists, creating backup..."
             
-            # Create backup by copying the entire directory
+            # Create backup by downloading and re-uploading with new prefix
             echo "Creating backup: ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}"
-            coscmd copy -r ${{ env.COS_DIRECTORY }}/ ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}/
+            
+            # Download all files in the directory to local temp folder
+            mkdir -p backup_temp
+            coscmd download -r ${{ env.COS_DIRECTORY }}/ backup_temp/
+            
+            # Upload to backup location with correct path structure
+            cd backup_temp
+            coscmd upload -r ${{ env.COS_DIRECTORY }}/ ${{ env.COS_DIRECTORY }}_backup_${TIMESTAMP}/
+            cd ..
+            
+            # Clean up temp directory
+            rm -rf backup_temp
             
             # Delete original directory after backup
             echo "Deleting original directory ${{ env.COS_DIRECTORY }}..."

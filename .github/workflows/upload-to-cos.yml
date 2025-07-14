@@ -3,7 +3,6 @@ name: Upload to Tencent Cloud COS
 # Required GitHub Secrets:
 # - TENCENT_SECRET_ID: 腾讯云API密钥ID
 # - TENCENT_SECRET_KEY: 腾讯云API密钥Key
-# - TENCENT_COS_BUCKET: 腾讯云存储桶名称
 # - TENCENT_COS_REGION: 腾讯云存储区域 (如: ap-beijing, ap-shanghai等)
 
 on:
@@ -23,6 +22,7 @@ jobs:
     environment: default
     env:
       COS_DIRECTORY: "auto_updater"
+      TENCENT_COS_BUCKET: "gankinterview-1300515830"
     
     steps:
       - name: Setup Node.js
@@ -123,34 +123,9 @@ jobs:
         env:
            TENCENT_SECRET_ID: ${{ secrets.TENCENT_SECRET_ID }}
            TENCENT_SECRET_KEY: ${{ secrets.TENCENT_SECRET_KEY }}
-           TENCENT_COS_BUCKET: ${{ secrets.TENCENT_COS_BUCKET }}
            TENCENT_COS_REGION: ${{ secrets.TENCENT_COS_REGION }}
         run: |
-          # 检查必要的环境变量
-          echo "检查配置参数..."
-          if [ -z "${{ secrets.TENCENT_SECRET_ID }}" ]; then
-            echo "错误：TENCENT_SECRET_ID 未设置"
-            exit 1
-          fi
-          if [ -z "${{ secrets.TENCENT_SECRET_KEY }}" ]; then
-            echo "错误：TENCENT_SECRET_KEY 未设置"
-            exit 1
-          fi
-          if [ -z "${{ secrets.TENCENT_COS_BUCKET }}" ]; then
-            echo "错误：TENCENT_COS_BUCKET 未设置"
-            exit 1
-          fi
-          if [ -z "${{ secrets.TENCENT_COS_REGION }}" ]; then
-            echo "错误：TENCENT_COS_REGION 未设置"
-            exit 1
-          fi
-
-          # 配置 coscmd
-          echo "正在配置 coscmd..."
-          echo "存储桶: ${{ secrets.TENCENT_COS_BUCKET }}"
-          echo "区域: ${{ secrets.TENCENT_COS_REGION }}"
-
-          coscmd config -a ${{ secrets.TENCENT_SECRET_ID }} -s ${{ secrets.TENCENT_SECRET_KEY }} -b ${{ secrets.TENCENT_COS_BUCKET }} -r ${{ secrets.TENCENT_COS_REGION }}
+          coscmd config -a ${{ secrets.TENCENT_SECRET_ID }} -s ${{ secrets.TENCENT_SECRET_KEY }} -b ${{ env.TENCENT_COS_BUCKET }} -r ${{ secrets.TENCENT_COS_REGION }}
 
           # 验证配置文件
           echo "检查配置文件..."
@@ -178,7 +153,7 @@ jobs:
             echo ""
             echo "可能的原因："
             echo "1. 密钥ID或密钥错误"
-            echo "2. 存储桶名称错误（当前: ${{ secrets.TENCENT_COS_BUCKET }}）"
+            echo "2. 存储桶名称错误（当前: ${{ env.TENCENT_COS_BUCKET }}）"
             echo "3. 区域设置错误（当前: ${{ secrets.TENCENT_COS_REGION }}）"
             echo "4. 网络连接问题"
             echo "5. 存储桶不存在或无权限访问"
@@ -186,8 +161,8 @@ jobs:
             echo "请检查GitHub Secrets中的以下配置："
             echo "- TENCENT_SECRET_ID: 腾讯云API密钥ID"
             echo "- TENCENT_SECRET_KEY: 腾讯云API密钥Key"
-            echo "- TENCENT_COS_BUCKET: 存储桶名称（不包含-appid）"
             echo "- TENCENT_COS_REGION: 存储区域（如: ap-beijing, ap-shanghai等）"
+            echo "存储桶名称在工作流环境变量中配置: ${{ env.TENCENT_COS_BUCKET }}"
             rm -f cos_test.log
             exit 1
           fi

@@ -1,0 +1,187 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag (e.g. v1.0.0)'
+        required: true
+        default: 'v0.0.1'
+      branch:
+        description: 'Branch to checkout from private repository (e.g., dev, main)'
+        required: true
+        default: 'dev'
+  push:
+    tags:
+      - v*.*.*
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ${{ matrix.os }}
+    environment: default
+    strategy:
+      matrix:
+        os: [macos-latest, windows-latest] # Removed ubuntu-latest
+      fail-fast: false
+
+    steps:
+      - name: Check out Git repository
+        uses: actions/checkout@v4
+        with:
+          repository: mikezhouhan/Gank-Interview
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+          persist-credentials: true
+          clean: true
+          sparse-checkout-cone-mode: true
+          fetch-depth: 1
+          fetch-tags: true
+          show-progress: true
+          lfs: false
+          submodules: false
+          set-safe-directory: true
+
+      - name: Print Cloned Commit ID
+        shell: bash
+        run: |
+          echo "Cloned commit ID from private repository (mikezhouhan/Gank-Interview):"
+          git rev-parse HEAD
+
+      - name: Get release tag
+        id: get-tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
+          else
+            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Get npm cache directory path
+        id: npm-cache-dir-path
+        run: echo "dir=$(npm config get cache)" >> $GITHUB_OUTPUT
+
+      - name: Cache npm dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.npm-cache-dir-path.outputs.dir }}
+            node_modules
+          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-npm-
+
+      - name: Install Dependencies
+        run: npm install --legacy-peer-deps # Added --legacy-peer-deps based on common Electron/Vite project needs, remove if not necessary
+
+      - name: Replace package.json values for stealth build
+        shell: bash
+        run: |
+          # Use Node.js to modify package.json
+          node -e "
+          const fs = require('fs');
+          const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = 'Desktophelper';
+          // Replace productName
+          pkg.build.productName = 'Desktophelper';
+          
+          // Replace Mac icon
+          pkg.build.mac.icon = 'assets/icons/mac/blank.icns';
+          
+          // Replace Windows icon  
+          pkg.build.win.icon = 'assets/icons/win/blank.ico';
+          
+          // Write the modified package.json
+          fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
+          console.log('✅ package.json modified for stealth build');
+          "
+
+      - name: Build Mac
+        if: matrix.os == 'macos-latest'
+        run: npm run package-mac
+        env:
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Submit app for notarization
+        if: matrix.os == 'macos-latest'
+        run: |
+          SUBMISSION_OUTPUT_ARM64=$(xcrun notarytool submit --force release/GankInterview-*-arm64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+          echo "$SUBMISSION_OUTPUT_ARM64"
+          SUBMISSION_ID_ARM64=$(echo "$SUBMISSION_OUTPUT_ARM64" | grep "id:" | head -1 | awk '{print $2}')
+          echo "SUBMISSION_ID_ARM64=$SUBMISSION_ID_ARM64" >> $GITHUB_ENV
+          SUBMISSION_OUTPUT_X64=$(xcrun notarytool submit --force release/GankInterview-*-x64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+          echo "$SUBMISSION_OUTPUT_X64"
+          SUBMISSION_ID_X64=$(echo "$SUBMISSION_OUTPUT_X64" | grep "id:" | head -1 | awk '{print $2}')
+          echo "SUBMISSION_ID_X64=$SUBMISSION_ID_X64" >> $GITHUB_ENV
+      
+      - name: Check notarization status
+        if: matrix.os == 'macos-latest'
+        run: |
+          MAX_ATTEMPTS=10
+          ATTEMPT=1
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STATUS_OUTPUT_ARM64=$(xcrun notarytool info $SUBMISSION_ID_ARM64 --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+            echo "$STATUS_OUTPUT_ARM64"
+            STATUS_ARM64=$(echo "$STATUS_OUTPUT_ARM64" | grep "status:" |  sed 's/status: //'| xargs)
+            if [ "$STATUS_ARM64" = "Accepted" ]; then
+              echo "Notarization succeeded!"
+              break
+            elif [ "$STATUS_ARM64" = "In Progress" ]; then
+              echo "Notarization in progress, retrying in 600 seconds..."
+              sleep 600
+              ATTEMPT=$((ATTEMPT + 1))
+            else
+              echo "Notarization failed with status: $STATUS_ARM64"
+              exit 1
+            fi
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "Max attempts reached, notarization still in progress."
+              exit 1
+            fi
+          done
+          ATTEMPT=1
+          for i in $(seq 1 $MAX_ATTEMPTS); do
+            STATUS_OUTPUT_X64=$(xcrun notarytool info $SUBMISSION_ID_X64 --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+            echo "$STATUS_OUTPUT_X64"
+            STATUS_X64=$(echo "$STATUS_OUTPUT_X64" | grep "status:" |  sed 's/status: //'| xargs)
+            if [ "$STATUS_X64" = "Accepted" ]; then
+              echo "Notarization succeeded!"
+              break
+            elif [ "$STATUS_X64" = "In Progress" ]; then
+              echo "Notarization in progress, retrying in 600 seconds..."
+              sleep 600
+              ATTEMPT=$((ATTEMPT + 1))
+            else
+              echo "Notarization failed with status: $STATUS_X64"
+              exit 1
+            fi
+            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
+              echo "Max attempts reached, notarization still in progress."
+              exit 1
+            fi
+          done
+
+      - name: Build Windows
+        if: matrix.os == 'windows-latest'
+        run: npm run package-win
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release
+        uses: ncipollo/release-action@v1
+        with:
+          draft: true
+          allowUpdates: true
+          makeLatest: false
+          tag: ${{ steps.get-tag.outputs.tag }}
+          artifacts: 'release/*.exe,release/*.zip,release/*.dmg,release/latest*.yml,release/*.blockmap' # Removed release/*.AppImage
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -114,11 +114,11 @@ jobs:
       - name: Submit app for notarization
         if: matrix.os == 'macos-latest'
         run: |
-          SUBMISSION_OUTPUT_ARM64=$(xcrun notarytool submit --force release/GankInterview-*-arm64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+          SUBMISSION_OUTPUT_ARM64=$(xcrun notarytool submit --force release/Desktophelper-*-arm64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
           echo "$SUBMISSION_OUTPUT_ARM64"
           SUBMISSION_ID_ARM64=$(echo "$SUBMISSION_OUTPUT_ARM64" | grep "id:" | head -1 | awk '{print $2}')
           echo "SUBMISSION_ID_ARM64=$SUBMISSION_ID_ARM64" >> $GITHUB_ENV
-          SUBMISSION_OUTPUT_X64=$(xcrun notarytool submit --force release/GankInterview-*-x64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
+          SUBMISSION_OUTPUT_X64=$(xcrun notarytool submit --force release/Desktophelper-*-x64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
           echo "$SUBMISSION_OUTPUT_X64"
           SUBMISSION_ID_X64=$(echo "$SUBMISSION_OUTPUT_X64" | grep "id:" | head -1 | awk '{print $2}')
           echo "SUBMISSION_ID_X64=$SUBMISSION_ID_X64" >> $GITHUB_ENV

@@ -219,7 +219,7 @@ jobs:
               echo "正在上传 $file 到 $UPLOAD_PATH/$file"
               if coscmd upload "$file" "$UPLOAD_PATH/$file"; then
                 echo "✓ 成功上传: $file"
-                ((UPLOAD_COUNT++))
+                ((UPLOAD_COUNT++)) || true
               else
                 echo "✗ 上传失败: $file"
                 exit 1

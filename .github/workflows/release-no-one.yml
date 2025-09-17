@@ -184,5 +184,5 @@ jobs:
           allowUpdates: true
           makeLatest: false
           tag: ${{ steps.get-tag.outputs.tag }}
-          artifacts: 'release/*.exe,release/*.zip,release/*.dmg,release/latest*.yml,release/*.blockmap' # Removed release/*.AppImage
+          artifacts: 'release/*.exe,release/*.dmg,release/latest*.yml'
           token: ${{ secrets.GITHUB_TOKEN }}

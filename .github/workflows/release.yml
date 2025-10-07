@@ -81,6 +81,8 @@ jobs:
 
       - name: Install Dependencies
         run: npm install --legacy-peer-deps # Added --legacy-peer-deps based on common Electron/Vite project needs, remove if not necessary
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Removed Build Linux step
 

@@ -25,7 +25,13 @@ jobs:
     environment: default
     strategy:
       matrix:
-        os: [macos-latest, windows-latest] # Removed ubuntu-latest
+        include:
+          - os: macos-13        # Intel x64 runner for x64 build
+            platform: mac-x64
+          - os: macos-latest    # ARM64 runner for arm64 build
+            platform: mac-arm64
+          - os: windows-latest
+            platform: windows
       fail-fast: false
 
     steps:
@@ -76,9 +82,9 @@ jobs:
           path: |
             ${{ steps.npm-cache-dir-path.outputs.dir }}
             node_modules
-          key: ${{ runner.os }}-npm-${{ hashFiles('**/package-lock.json') }}
+          key: ${{ runner.os }}-${{ matrix.platform }}-npm-${{ hashFiles('**/package-lock.json') }}
           restore-keys: |
-            ${{ runner.os }}-npm-
+            ${{ runner.os }}-${{ matrix.platform }}-npm-
 
       - name: Install Dependencies
         run: npm install --legacy-peer-deps # Added --legacy-peer-deps based on common Electron/Vite project needs, remove if not necessary
@@ -95,76 +101,70 @@ jobs:
           pkg.name = 'Desktophelper';
           // Replace productName
           pkg.build.productName = 'Desktophelper';
-          
+
           // Replace Mac icon
           pkg.build.mac.icon = 'assets/icons/mac/blank.icns';
-          
-          // Replace Windows icon  
+
+          // Replace Windows icon
           pkg.build.win.icon = 'assets/icons/win/blank.ico';
-          
+
           // Write the modified package.json
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
           console.log('✅ package.json modified for stealth build');
           "
 
+      - name: Configure Mac build architecture
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
+        shell: bash
+        run: |
+          if [ "${{ matrix.platform }}" = "mac-x64" ]; then
+            echo "Configuring build for x64 only..."
+            node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.build.mac.target=[{target:'dmg',arch:['x64']},{target:'zip',arch:['x64']}];fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
+          else
+            echo "Configuring build for arm64 only..."
+            node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.build.mac.target=[{target:'dmg',arch:['arm64']},{target:'zip',arch:['arm64']}];fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
+          fi
+
       - name: Build Mac
-        if: matrix.os == 'macos-latest'
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
         run: npm run package-mac
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: Submit app for notarization
-        if: matrix.os == 'macos-latest'
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
+        shell: bash
         run: |
-          SUBMISSION_OUTPUT_ARM64=$(xcrun notarytool submit --force release/Desktophelper-*-arm64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
-          echo "$SUBMISSION_OUTPUT_ARM64"
-          SUBMISSION_ID_ARM64=$(echo "$SUBMISSION_OUTPUT_ARM64" | grep "id:" | head -1 | awk '{print $2}')
-          echo "SUBMISSION_ID_ARM64=$SUBMISSION_ID_ARM64" >> $GITHUB_ENV
-          SUBMISSION_OUTPUT_X64=$(xcrun notarytool submit --force release/Desktophelper-*-x64.dmg --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
-          echo "$SUBMISSION_OUTPUT_X64"
-          SUBMISSION_ID_X64=$(echo "$SUBMISSION_OUTPUT_X64" | grep "id:" | head -1 | awk '{print $2}')
-          echo "SUBMISSION_ID_X64=$SUBMISSION_ID_X64" >> $GITHUB_ENV
-      
+          if [ "${{ matrix.platform }}" = "mac-x64" ]; then
+            DMG_FILE="release/Desktophelper-*-x64.dmg"
+          else
+            DMG_FILE="release/Desktophelper-*-arm64.dmg"
+          fi
+          SUBMISSION_OUTPUT=$(xcrun notarytool submit --force $DMG_FILE --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID }}")
+          echo "$SUBMISSION_OUTPUT"
+          SUBMISSION_ID=$(echo "$SUBMISSION_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
+          echo "SUBMISSION_ID=$SUBMISSION_ID" >> $GITHUB_ENV
+
       - name: Check notarization status
-        if: matrix.os == 'macos-latest'
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
+        shell: bash
         run: |
           MAX_ATTEMPTS=10
           ATTEMPT=1
           for i in $(seq 1 $MAX_ATTEMPTS); do
-            STATUS_OUTPUT_ARM64=$(xcrun notarytool info $SUBMISSION_ID_ARM64 --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
-            echo "$STATUS_OUTPUT_ARM64"
-            STATUS_ARM64=$(echo "$STATUS_OUTPUT_ARM64" | grep "status:" |  sed 's/status: //'| xargs)
-            if [ "$STATUS_ARM64" = "Accepted" ]; then
-              echo "Notarization succeeded!"
+            STATUS_OUTPUT=$(xcrun notarytool info $SUBMISSION_ID --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID }}")
+            echo "$STATUS_OUTPUT"
+            STATUS=$(echo "$STATUS_OUTPUT" | grep "status:" | sed 's/status: //' | xargs)
+            if [ "$STATUS" = "Accepted" ]; then
+              echo "Notarization succeeded for ${{ matrix.platform }}!"
               break
-            elif [ "$STATUS_ARM64" = "In Progress" ]; then
+            elif [ "$STATUS" = "In Progress" ]; then
               echo "Notarization in progress, retrying in 600 seconds..."
               sleep 600
               ATTEMPT=$((ATTEMPT + 1))
             else
-              echo "Notarization failed with status: $STATUS_ARM64"
-              exit 1
-            fi
-            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-              echo "Max attempts reached, notarization still in progress."
-              exit 1
-            fi
-          done
-          ATTEMPT=1
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            STATUS_OUTPUT_X64=$(xcrun notarytool info $SUBMISSION_ID_X64 --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID  }}")
-            echo "$STATUS_OUTPUT_X64"
-            STATUS_X64=$(echo "$STATUS_OUTPUT_X64" | grep "status:" |  sed 's/status: //'| xargs)
-            if [ "$STATUS_X64" = "Accepted" ]; then
-              echo "Notarization succeeded!"
-              break
-            elif [ "$STATUS_X64" = "In Progress" ]; then
-              echo "Notarization in progress, retrying in 600 seconds..."
-              sleep 600
-              ATTEMPT=$((ATTEMPT + 1))
-            else
-              echo "Notarization failed with status: $STATUS_X64"
+              echo "Notarization failed with status: $STATUS"
               exit 1
             fi
             if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
@@ -174,7 +174,7 @@ jobs:
           done
 
       - name: Build Windows
-        if: matrix.os == 'windows-latest'
+        if: matrix.platform == 'windows'
         run: npm run package-win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

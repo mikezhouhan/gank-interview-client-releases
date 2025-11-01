@@ -13,7 +13,7 @@ gh workflow run release.yml \
       --field tag=v1.0.0 \
       --field branch=dev_en
 
-gh workflow run release.yml \
+gh workflow run release-no-one.yml \
       --ref main \
       --field tag=v1.0.1 \
       --field branch=dev_en_one

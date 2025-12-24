@@ -26,7 +26,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - os: macos-13        # Intel x64 runner for x64 build
+          - os: macos-15-intel  # Intel x64 runner on macOS 15
             platform: mac-x64
           - os: macos-latest    # ARM64 runner for arm64 build
             platform: mac-arm64

@@ -91,13 +91,16 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Replace package.json icons for no-one build
+      - name: Replace package.json values for stealth build
         shell: bash
         run: |
           # Use Node.js to modify package.json
           node -e "
           const fs = require('fs');
           const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          pkg.name = 'Desktophelper';
+          // Replace productName
+          pkg.build.productName = 'Desktophelper';
 
           // Replace Mac icon
           pkg.build.mac.icon = 'assets/icons/mac/blank.icns';
@@ -107,7 +110,7 @@ jobs:
 
           // Write the modified package.json
           fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2));
-          console.log('✅ package.json icons modified for no-one build');
+          console.log('✅ package.json modified for stealth build');
           "
 
       - name: Configure Mac build architecture
@@ -134,9 +137,9 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "mac-x64" ]; then
-            DMG_FILE="release/*-x64.dmg"
+            DMG_FILE="release/Desktophelper-*-x64.dmg"
           else
-            DMG_FILE="release/*-arm64.dmg"
+            DMG_FILE="release/Desktophelper-*-arm64.dmg"
           fi
           SUBMISSION_OUTPUT=$(xcrun notarytool submit --force $DMG_FILE --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID }}")
           echo "$SUBMISSION_OUTPUT"

@@ -116,9 +116,9 @@ jobs:
         shell: bash
         run: |
           if [ "${{ matrix.platform }}" = "mac-x64" ]; then
-            DMG_FILE="release/GankInterview-*-x64.dmg"
+            DMG_FILE="release/*-x64.dmg"
           else
-            DMG_FILE="release/GankInterview-*-arm64.dmg"
+            DMG_FILE="release/*-arm64.dmg"
           fi
           SUBMISSION_OUTPUT=$(xcrun notarytool submit --force $DMG_FILE --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID }}")
           echo "$SUBMISSION_OUTPUT"

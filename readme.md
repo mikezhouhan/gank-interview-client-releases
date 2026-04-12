@@ -1,11 +1,11 @@
 gh workflow run release.yml \
       --ref main \
-      --field tag=v1.7.4 \
+      --field tag=v2.0.4 \
       --field branch=dev
 
 gh workflow run release-no-one.yml \
       --ref main \
-      --field tag=v1.7.5 \
+      --field tag=v2.0.5 \
       --field branch=dev_one
 
 gh workflow run release.yml \

@@ -23,8 +23,8 @@ chmod +x run_update.sh
 ./run_update.sh v1.7.5 auto_updater
 
 # 不清空目录，直接覆盖
-./run_update.sh v1.7.4 auto_updater --no-clear
-./run_update.sh v1.7.5 no_one_auto_updater --no-clear
+./run_update.sh v2.0.4 auto_updater --no-clear
+./run_update.sh v2.0.5 no_one_auto_updater --no-clear
 ```
 
 ## GitHub → Cloudflare R2

@@ -106,7 +106,7 @@ jobs:
 
       - name: Build Mac
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
-        run: npm run package-mac
+        run: npm run package-mac -- --publish never
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -154,16 +154,106 @@ jobs:
 
       - name: Build Windows
         if: matrix.platform == 'windows'
-        run: npm run package-win
+        run: npm run package-win -- --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Release
+      - name: Release Mac
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
         uses: ncipollo/release-action@v1
         with:
           draft: true
           allowUpdates: true
           makeLatest: false
           tag: ${{ steps.get-tag.outputs.tag }}
-          artifacts: 'release/*.exe,release/*.dmg,release/*.zip,release/latest*.yml'
+          artifacts: 'release/*.dmg,release/*.zip'
           token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Release Windows
+        if: matrix.platform == 'windows'
+        uses: ncipollo/release-action@v1
+        with:
+          draft: true
+          allowUpdates: true
+          makeLatest: false
+          tag: ${{ steps.get-tag.outputs.tag }}
+          artifacts: 'release/*.exe,release/latest.yml'
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+  merge-mac-latest:
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+    steps:
+      - name: Download mac release assets
+        run: |
+          mkdir -p release-assets
+          gh release download "$TAG" \
+            --pattern '*-arm64.zip' \
+            --pattern '*-x64.zip' \
+            --pattern '*-arm64.dmg' \
+            --pattern '*-x64.dmg' \
+            --dir release-assets \
+            --clobber
+
+      - name: Generate merged latest-mac.yml
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          from datetime import datetime, timezone
+          import base64
+          import hashlib
+          import os
+
+          release_dir = Path("release-assets")
+          version = os.environ["TAG"].lstrip("v")
+
+          def sha512_base64(path: Path) -> str:
+              digest = hashlib.sha512()
+              with path.open("rb") as file:
+                  for chunk in iter(lambda: file.read(1024 * 1024), b""):
+                      digest.update(chunk)
+              return base64.b64encode(digest.digest()).decode("ascii")
+
+          files = []
+          for pattern in ("*-arm64.zip", "*-x64.zip", "*-arm64.dmg", "*-x64.dmg"):
+              for path in sorted(release_dir.glob(pattern)):
+                  files.append({
+                      "url": path.name,
+                      "sha512": sha512_base64(path),
+                      "size": path.stat().st_size,
+                  })
+
+          if not any(item["url"].endswith("-arm64.zip") for item in files):
+              raise SystemExit("missing arm64 zip")
+          if not any(item["url"].endswith("-x64.zip") for item in files):
+              raise SystemExit("missing x64 zip")
+
+          fallback = next(item for item in files if item["url"].endswith("-x64.zip"))
+          release_date = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
+
+          lines = [f"version: {version}", "files:"]
+          for item in files:
+              lines.extend([
+                  f"  - url: {item['url']}",
+                  f"    sha512: {item['sha512']}",
+                  f"    size: {item['size']}",
+              ])
+          lines.extend([
+              f"path: {fallback['url']}",
+              f"sha512: {fallback['sha512']}",
+              f"releaseDate: '{release_date}'",
+              "",
+          ])
+
+          output = release_dir / "latest-mac.yml"
+          output.write_text("\n".join(lines), encoding="utf-8")
+          print(output.read_text())
+          PY
+
+      - name: Upload merged latest-mac.yml
+        run: gh release upload "$TAG" release-assets/latest-mac.yml --clobber

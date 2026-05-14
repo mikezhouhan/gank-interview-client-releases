@@ -214,6 +214,7 @@ jobs:
         run: |
           mkdir -p release-assets
           gh release download "$TAG" \
+            --repo "$GITHUB_REPOSITORY" \
             --pattern '*-arm64.zip' \
             --pattern '*-x64.zip' \
             --pattern '*-arm64.dmg' \
@@ -277,4 +278,4 @@ jobs:
           PY
 
       - name: Upload merged latest-mac.yml
-        run: gh release upload "$TAG" release-assets/latest-mac.yml --clobber
+        run: gh release upload "$TAG" release-assets/latest-mac.yml --repo "$GITHUB_REPOSITORY" --clobber

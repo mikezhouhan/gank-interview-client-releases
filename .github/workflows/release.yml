@@ -106,7 +106,7 @@ jobs:
 
       - name: Build Mac
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
-        run: npm run package-mac -- --publish never
+        run: npm run package-mac -- --publish=never
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
@@ -154,7 +154,7 @@ jobs:
 
       - name: Build Windows
         if: matrix.platform == 'windows'
-        run: npm run package-win -- --publish never
+        run: npm run package-win -- --publish=never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

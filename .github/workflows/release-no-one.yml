@@ -132,6 +132,19 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify main-process keyboard tap module
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
+        shell: bash
+        run: |
+          APP_PATH=$(find release -type d -name '*.app' -print -quit)
+          test -n "$APP_PATH"
+          TAP_MODULE="$APP_PATH/Contents/Frameworks/macos_keyboard_tap.node"
+          test -f "$TAP_MODULE"
+          codesign -dv --verbose=4 "$TAP_MODULE"
+          codesign --verify --strict --verbose=4 "$TAP_MODULE"
+          codesign --verify --deep --strict --verbose=4 "$APP_PATH"
+
       - name: Submit app for notarization
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
         shell: bash

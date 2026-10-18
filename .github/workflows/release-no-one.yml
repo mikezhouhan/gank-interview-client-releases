@@ -20,7 +20,35 @@ permissions:
   contents: write
 
 jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    environment: default
+    permissions:
+      contents: read
+    outputs:
+      source_sha: ${{ steps.source.outputs.source_sha }}
+      tag: ${{ steps.source.outputs.tag }}
+      version: ${{ steps.source.outputs.version }}
+    steps:
+      - name: Resolve release source
+        uses: actions/checkout@v4
+        with:
+          repository: mikezhouhan/Gank-Interview
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 23
+      - name: Validate tag and freeze source commit
+        id: source
+        run: node scripts/release-preflight.cjs --write-outputs
+        env:
+          RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+          RELEASE_PRODUCT: Desktophelper
+
   release:
+    needs: prepare
     runs-on: ${{ matrix.os }}
     environment: default
     strategy:
@@ -40,8 +68,8 @@ jobs:
         with:
           repository: mikezhouhan/Gank-Interview
           token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
-          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
-          persist-credentials: true
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
           clean: true
           sparse-checkout-cone-mode: true
           fetch-depth: 1
@@ -57,20 +85,17 @@ jobs:
           echo "Cloned commit ID from private repository (mikezhouhan/Gank-Interview):"
           git rev-parse HEAD
 
-      - name: Get release tag
-        id: get-tag
-        shell: bash
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "tag=${{ github.event.inputs.tag }}" >> $GITHUB_OUTPUT
-          else
-            echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
-          fi
-
       - name: Install Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 23
+
+      - name: Verify release signing key
+        run: node scripts/release-preflight.cjs --check-signing-key
+        env:
+          RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+          RELEASE_PRODUCT: Desktophelper
+          GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
 
       - name: Get npm cache directory path
         id: npm-cache-dir-path
@@ -87,7 +112,7 @@ jobs:
             ${{ runner.os }}-${{ matrix.platform }}-npm-
 
       - name: Install Dependencies
-        run: npm install --legacy-peer-deps # Added --legacy-peer-deps based on common Electron/Vite project needs, remove if not necessary
+        run: npm ci --legacy-peer-deps
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -131,6 +156,7 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify main-process keyboard tap module
@@ -191,6 +217,7 @@ jobs:
         run: npm run package-win -- --publish=never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
 
       - name: Release Mac
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
@@ -199,8 +226,8 @@ jobs:
           draft: true
           allowUpdates: true
           makeLatest: false
-          tag: ${{ steps.get-tag.outputs.tag }}
-          artifacts: 'release/*.dmg,release/*.zip'
+          tag: ${{ needs.prepare.outputs.tag }}
+          artifacts: 'release/*.dmg,release/*.zip,release/*.dmg.update.yml,release/*.zip.update.yml'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release Windows
@@ -210,19 +237,33 @@ jobs:
           draft: true
           allowUpdates: true
           makeLatest: false
-          tag: ${{ steps.get-tag.outputs.tag }}
-          artifacts: 'release/*.exe,release/latest.yml'
+          tag: ${{ needs.prepare.outputs.tag }}
+          artifacts: 'release/*.exe,release/latest.yml,release/*.exe.update.yml'
           token: ${{ secrets.GITHUB_TOKEN }}
 
   merge-mac-latest:
-    needs: release
+    needs: [prepare, release]
     runs-on: ubuntu-latest
+    environment: default
     permissions:
       contents: write
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
+      TAG: ${{ needs.prepare.outputs.tag }}
     steps:
+      - name: Check out trusted update verifier
+        uses: actions/checkout@v4
+        with:
+          repository: mikezhouhan/Gank-Interview
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          ref: ${{ needs.prepare.outputs.source_sha }}
+          persist-credentials: false
+
+      - name: Set up verifier runtime
+        uses: actions/setup-node@v4
+        with:
+          node-version: 23
+
       - name: Download mac release assets
         run: |
           mkdir -p release-assets
@@ -232,63 +273,13 @@ jobs:
             --pattern '*-x64.zip' \
             --pattern '*-arm64.dmg' \
             --pattern '*-x64.dmg' \
+            --pattern '*.zip.update.yml' \
+            --pattern '*.dmg.update.yml' \
             --dir release-assets \
             --clobber
 
-      - name: Generate merged latest-mac.yml
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from datetime import datetime, timezone
-          import base64
-          import hashlib
-          import os
-
-          release_dir = Path("release-assets")
-          version = os.environ["TAG"].lstrip("v")
-
-          def sha512_base64(path: Path) -> str:
-              digest = hashlib.sha512()
-              with path.open("rb") as file:
-                  for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                      digest.update(chunk)
-              return base64.b64encode(digest.digest()).decode("ascii")
-
-          files = []
-          for pattern in ("*-arm64.zip", "*-x64.zip", "*-arm64.dmg", "*-x64.dmg"):
-              for path in sorted(release_dir.glob(pattern)):
-                  files.append({
-                      "url": path.name,
-                      "sha512": sha512_base64(path),
-                      "size": path.stat().st_size,
-                  })
-
-          if not any(item["url"].endswith("-arm64.zip") for item in files):
-              raise SystemExit("missing arm64 zip")
-          if not any(item["url"].endswith("-x64.zip") for item in files):
-              raise SystemExit("missing x64 zip")
-
-          fallback = next(item for item in files if item["url"].endswith("-x64.zip"))
-          release_date = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-          lines = [f"version: {version}", "files:"]
-          for item in files:
-              lines.extend([
-                  f"  - url: {item['url']}",
-                  f"    sha512: {item['sha512']}",
-                  f"    size: {item['size']}",
-              ])
-          lines.extend([
-              f"path: {fallback['url']}",
-              f"sha512: {fallback['sha512']}",
-              f"releaseDate: '{release_date}'",
-              "",
-          ])
-
-          output = release_dir / "latest-mac.yml"
-          output.write_text("\n".join(lines), encoding="utf-8")
-          print(output.read_text())
-          PY
+      - name: Verify signed artifacts and merge latest-mac.yml
+        run: node scripts/merge-signed-mac-update.cjs release-assets Desktophelper "${TAG#v}"
 
       - name: Upload merged latest-mac.yml
         run: gh release upload "$TAG" release-assets/latest-mac.yml --repo "$GITHUB_REPOSITORY" --clobber

@@ -8,7 +8,7 @@ on:
       source_sha:
         description: 'Exact client candidate commit (40 hex characters)'
         required: true
-        default: '2abd03b7b94dbe81590a996827cc815d2fad7919'
+        default: '3de5939f73e3ade329a8c702be8d1ae90181d4d0'
 
 permissions:
   contents: read
@@ -27,12 +27,12 @@ jobs:
       fail-fast: false
       matrix:
         product: [GankInterview, Desktophelper]
-        os: [macos-15, macos-15-intel, windows-2022]
+        os: [macos-latest, macos-15-intel, windows-2022]
     defaults:
       run:
         working-directory: client
     env:
-      SOURCE_SHA: ${{ inputs.source_sha || '2abd03b7b94dbe81590a996827cc815d2fad7919' }}
+      SOURCE_SHA: ${{ inputs.source_sha || '3de5939f73e3ade329a8c702be8d1ae90181d4d0' }}
       VALIDATION_PRODUCT: ${{ matrix.product }}
       CSC_IDENTITY_AUTO_DISCOVERY: 'false'
     steps:

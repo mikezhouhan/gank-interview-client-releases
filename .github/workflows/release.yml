@@ -110,6 +110,7 @@ jobs:
         env:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify main-process keyboard tap module
@@ -169,6 +170,7 @@ jobs:
         if: matrix.platform == 'windows'
         run: npm run package-win -- --publish=never
         env:
+          GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release Mac

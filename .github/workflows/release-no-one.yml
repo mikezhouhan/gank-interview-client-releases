@@ -200,6 +200,7 @@ jobs:
         with:
           draft: true
           allowUpdates: true
+          artifactErrorsFailBuild: true
           makeLatest: false
           tag: ${{ steps.get-tag.outputs.tag }}
           artifacts: 'release/*.dmg,release/*.zip,release/*.dmg.update.yml,release/*.zip.update.yml'
@@ -211,6 +212,7 @@ jobs:
         with:
           draft: true
           allowUpdates: true
+          artifactErrorsFailBuild: true
           makeLatest: false
           tag: ${{ steps.get-tag.outputs.tag }}
           artifacts: 'release/*.exe,release/latest.yml'

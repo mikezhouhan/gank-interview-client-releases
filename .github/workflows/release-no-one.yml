@@ -202,7 +202,7 @@ jobs:
           allowUpdates: true
           makeLatest: false
           tag: ${{ steps.get-tag.outputs.tag }}
-          artifacts: 'release/*.dmg,release/*.zip'
+          artifacts: 'release/*.dmg,release/*.zip,release/*.dmg.update.yml,release/*.zip.update.yml'
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release Windows
@@ -218,6 +218,7 @@ jobs:
 
   merge-mac-latest:
     needs: release
+    environment: default
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -225,6 +226,19 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       TAG: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || github.ref_name }}
     steps:
+      - name: Check out update verification tools
+        uses: actions/checkout@v4
+        with:
+          repository: mikezhouhan/Gank-Interview
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.branch || github.ref }}
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /scripts/merge-signed-mac-update.cjs
+            /scripts/update-artifact-signing.cjs
+            /build/update-trust.json
+
       - name: Download mac release assets
         run: |
           mkdir -p release-assets
@@ -234,63 +248,13 @@ jobs:
             --pattern '*-x64.zip' \
             --pattern '*-arm64.dmg' \
             --pattern '*-x64.dmg' \
+            --pattern '*.zip.update.yml' \
+            --pattern '*.dmg.update.yml' \
             --dir release-assets \
             --clobber
 
       - name: Generate merged latest-mac.yml
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-          from datetime import datetime, timezone
-          import base64
-          import hashlib
-          import os
-
-          release_dir = Path("release-assets")
-          version = os.environ["TAG"].lstrip("v")
-
-          def sha512_base64(path: Path) -> str:
-              digest = hashlib.sha512()
-              with path.open("rb") as file:
-                  for chunk in iter(lambda: file.read(1024 * 1024), b""):
-                      digest.update(chunk)
-              return base64.b64encode(digest.digest()).decode("ascii")
-
-          files = []
-          for pattern in ("*-arm64.zip", "*-x64.zip", "*-arm64.dmg", "*-x64.dmg"):
-              for path in sorted(release_dir.glob(pattern)):
-                  files.append({
-                      "url": path.name,
-                      "sha512": sha512_base64(path),
-                      "size": path.stat().st_size,
-                  })
-
-          if not any(item["url"].endswith("-arm64.zip") for item in files):
-              raise SystemExit("missing arm64 zip")
-          if not any(item["url"].endswith("-x64.zip") for item in files):
-              raise SystemExit("missing x64 zip")
-
-          fallback = next(item for item in files if item["url"].endswith("-x64.zip"))
-          release_date = datetime.now(timezone.utc).isoformat(timespec="milliseconds").replace("+00:00", "Z")
-
-          lines = [f"version: {version}", "files:"]
-          for item in files:
-              lines.extend([
-                  f"  - url: {item['url']}",
-                  f"    sha512: {item['sha512']}",
-                  f"    size: {item['size']}",
-              ])
-          lines.extend([
-              f"path: {fallback['url']}",
-              f"sha512: {fallback['sha512']}",
-              f"releaseDate: '{release_date}'",
-              "",
-          ])
-
-          output = release_dir / "latest-mac.yml"
-          output.write_text("\n".join(lines), encoding="utf-8")
-          print(output.read_text())
-          PY
+        run: node scripts/merge-signed-mac-update.cjs release-assets Desktophelper "${TAG#v}"
 
       - name: Upload merged latest-mac.yml
         run: gh release upload "$TAG" release-assets/latest-mac.yml --repo "$GITHUB_REPOSITORY" --clobber

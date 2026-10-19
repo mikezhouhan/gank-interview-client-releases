@@ -13,10 +13,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: release-validation-${{ github.ref }}
-  cancel-in-progress: false
-
 jobs:
   package:
     name: ${{ matrix.product }} / ${{ matrix.os }}

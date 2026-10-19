@@ -1,0 +1,86 @@
+name: Validate client packages (no release)
+
+on:
+  push:
+    branches: ['codex/release-validation-*']
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: 'Exact client candidate commit (40 hex characters)'
+        required: true
+        default: '2abd03b7b94dbe81590a996827cc815d2fad7919'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-validation-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  package:
+    name: ${{ matrix.product }} / ${{ matrix.os }}
+    environment: default
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        product: [GankInterview, Desktophelper]
+        os: [macos-15, macos-15-intel, windows-2022]
+    defaults:
+      run:
+        working-directory: client
+    env:
+      SOURCE_SHA: ${{ inputs.source_sha || '2abd03b7b94dbe81590a996827cc815d2fad7919' }}
+      VALIDATION_PRODUCT: ${{ matrix.product }}
+      CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+    steps:
+      - name: Check out release validation tools
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          path: release-tools
+          persist-credentials: false
+      - name: Check out the exact private client candidate
+        uses: actions/checkout@v4
+        with:
+          repository: mikezhouhan/Gank-Interview
+          token: ${{ secrets.PRIVATE_REPO_ACCESS_TOKEN }}
+          ref: ${{ env.SOURCE_SHA }}
+          path: client
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 23
+      - uses: dtolnay/rust-toolchain@1.86.0
+      - name: Install Windows helper compiler
+        if: runner.os == 'Windows'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+      - name: Check validation tool boundaries
+        run: node --test ../release-tools/scripts/validation/client-package.test.cjs
+      - name: Prepare channel and disposable test signing identity
+        run: node ../release-tools/scripts/validation/client-package.cjs prepare
+      - name: Install the locked production build dependencies
+        run: npm ci --legacy-peer-deps
+      - name: Validate the release workflows and shared packaging rules
+        run: npx vitest run scripts/release-workflow-contract.test.js scripts/release-preflight.test.js scripts/update-artifact-signing.test.js scripts/harden-packaged-app.test.js scripts/package-footprint.test.js src/renderer/nativeTooltipPolicy.test.ts src/renderer/utils/nativeTooltipGuard.test.tsx
+        env:
+          GANK_RELEASE_WORKFLOW_DIR: ${{ github.workspace }}/release-tools/.github/workflows
+      - name: Build real DMG and ZIP or NSIS using the release commands
+        run: node ../release-tools/scripts/validation/client-package.cjs build
+      - name: Verify package identity, native loading, cancellation and signed artifacts
+        run: node ../release-tools/scripts/validation/client-package.cjs verify
+      - name: Remove disposable private signing key
+        if: always()
+        run: node ../release-tools/scripts/validation/client-package.cjs cleanup
+      - name: Save validation metadata only
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: package-validation-${{ matrix.product }}-${{ matrix.os }}
+          path: ${{ runner.temp }}/client-package-validation/report.json
+          if-no-files-found: ignore
+          retention-days: 7

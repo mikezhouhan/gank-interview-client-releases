@@ -11,10 +11,6 @@ on:
         description: 'Branch to checkout from private repository (e.g., dev, main)'
         required: true
         default: 'dev'
-      protected_runtime:
-        description: 'Compile, verify and package the protected Electron 29 runtime'
-        type: boolean
-        default: false
   push:
     tags:
       - v*.*.*
@@ -109,17 +105,10 @@ jobs:
             node -e "const fs=require('fs');const p=JSON.parse(fs.readFileSync('package.json'));p.build.mac.target=[{target:'dmg',arch:['arm64']},{target:'zip',arch:['arm64']}];fs.writeFileSync('package.json',JSON.stringify(p,null,2));"
           fi
 
-      - name: Build and accept protected runtime
-        if: inputs.protected_runtime == true
-        uses: ./.github/actions/protected-runtime
-        with:
-          preload-signing-key: ${{ secrets.GANK_PRELOAD_SIGNING_KEY }}
-
       - name: Build Mac
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
         run: npm run package-mac -- --publish=never
         env:
-          GANK_PRELOAD_SIGNING_KEY: ${{ inputs.protected_runtime && secrets.GANK_PRELOAD_SIGNING_KEY || '' }}
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
           GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}

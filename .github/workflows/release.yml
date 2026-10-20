@@ -11,6 +11,10 @@ on:
         description: 'Branch to checkout from private repository (e.g., dev, main)'
         required: true
         default: 'dev'
+      windows_runtime_check:
+        description: '仅验收 Windows 定制运行时，不发布安装包'
+        type: boolean
+        default: false
   push:
     tags:
       - v*.*.*
@@ -24,13 +28,7 @@ jobs:
     environment: default
     strategy:
       matrix:
-        include:
-          - os: macos-15-intel  # Intel x64 runner on macOS 15
-            platform: mac-x64
-          - os: macos-latest    # ARM64 runner for arm64 build
-            platform: mac-arm64
-          - os: windows-2022
-            platform: windows
+        include: ${{ fromJSON(inputs.windows_runtime_check && '[{"os":"windows-2022","platform":"windows"}]' || '[{"os":"macos-15-intel","platform":"mac-x64"},{"os":"macos-latest","platform":"mac-arm64"},{"os":"windows-2022","platform":"windows"}]') }}
       fail-fast: false
 
     steps:
@@ -91,6 +89,34 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # Removed Build Linux step
+
+      - name: Install Python for pinned Windows runtime tools
+        if: inputs.windows_runtime_check
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Build and verify Windows runtime candidate
+        if: inputs.windows_runtime_check
+        timeout-minutes: 330
+        shell: pwsh
+        run: |
+          # Use the volume with most free space; do not delete runner software.
+          $drive = Get-PSDrive -PSProvider FileSystem | Where-Object { $_.Name -in @('C', 'D') } | Sort-Object Free -Descending | Select-Object -First 1
+          $root = Join-Path $drive.Root "gank-runtime-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT"
+          ./runtime/electron-29.4.6/verify-windows-runtime.ps1 -BuildRoot $root
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Save Windows runtime verification evidence
+        if: always() && inputs.windows_runtime_check
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-runtime-integrity-evidence
+          path: |
+            ${{ runner.temp }}/gank-runtime-host-report.json
+            ${{ runner.temp }}/gank-runtime-build-report.json
+            ${{ runner.temp }}/gank-windows-runtime-smoke-report.json
+          if-no-files-found: warn
 
       - name: Configure Mac build architecture
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
@@ -167,13 +193,14 @@ jobs:
           done
 
       - name: Build Windows
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && !inputs.windows_runtime_check
         run: npm run package-win -- --publish=never
         env:
           GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Smoke test packaged modules (offline)
+        if: ${{ !inputs.windows_runtime_check }}
         timeout-minutes: 10
         run: node scripts/test-built-package.cjs
 
@@ -190,7 +217,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Release Windows
-        if: matrix.platform == 'windows'
+        if: matrix.platform == 'windows' && !inputs.windows_runtime_check
         uses: ncipollo/release-action@v1
         with:
           draft: true
@@ -202,6 +229,7 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
 
   merge-mac-latest:
+    if: ${{ !inputs.windows_runtime_check }}
     needs: release
     environment: default
     runs-on: ubuntu-latest

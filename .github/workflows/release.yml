@@ -173,6 +173,10 @@ jobs:
           GANK_UPDATE_SIGNING_KEY: ${{ secrets.GANK_UPDATE_SIGNING_KEY }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Smoke test packaged modules (offline)
+        timeout-minutes: 10
+        run: node scripts/test-built-package.cjs
+
       - name: Release Mac
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
         uses: ncipollo/release-action@v1

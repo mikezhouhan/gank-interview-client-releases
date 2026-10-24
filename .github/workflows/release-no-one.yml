@@ -91,6 +91,23 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Identify Rust cache compiler
+        id: rust-compiler
+        run: node scripts/rust-dependency-cache.cjs key
+
+      - name: Restore public Rust dependencies
+        id: rust-cache
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            ~/.cargo/registry/cache/index.crates.io-*
+            ~/.cargo/registry/index/index.crates.io-*
+            native/gank-core/target
+          key: rust-public-v1-${{ matrix.platform }}-${{ steps.rust-compiler.outputs.compiler }}-${{ hashFiles('native/gank-core/Cargo.lock', 'native/gank-core/Cargo.toml', 'native/gank-core-macros/Cargo.toml', 'native/vendor/napi-2.16.17/Cargo.toml', 'scripts/build-rust-core.cjs', 'scripts/rust-dependency-cache.cjs') }}
+          restore-keys: |
+            rust-public-v1-${{ matrix.platform }}-${{ steps.rust-compiler.outputs.compiler }}-
+
       - name: Replace package.json values for stealth build
         shell: bash
         run: |
@@ -147,45 +164,14 @@ jobs:
           codesign --verify --deep --strict --verbose=4 "$APP_PATH"
 
       - name: Submit app for notarization
+        id: notarization
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
-        shell: bash
-        run: |
-          if [ "${{ matrix.platform }}" = "mac-x64" ]; then
-            DMG_FILE="release/Desktophelper-*-x64.dmg"
-          else
-            DMG_FILE="release/Desktophelper-*-arm64.dmg"
-          fi
-          SUBMISSION_OUTPUT=$(xcrun notarytool submit --force $DMG_FILE --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID }}")
-          echo "$SUBMISSION_OUTPUT"
-          SUBMISSION_ID=$(echo "$SUBMISSION_OUTPUT" | grep "id:" | head -1 | awk '{print $2}')
-          echo "SUBMISSION_ID=$SUBMISSION_ID" >> $GITHUB_ENV
-
-      - name: Check notarization status
-        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
-        shell: bash
-        run: |
-          MAX_ATTEMPTS=10
-          ATTEMPT=1
-          for i in $(seq 1 $MAX_ATTEMPTS); do
-            STATUS_OUTPUT=$(xcrun notarytool info $SUBMISSION_ID --apple-id "${{ secrets.APPLE_ID }}" --password "${{ secrets.APPLE_PASSWORD }}" --team-id "${{ secrets.APPLE_TEAM_ID }}")
-            echo "$STATUS_OUTPUT"
-            STATUS=$(echo "$STATUS_OUTPUT" | grep "status:" | sed 's/status: //' | xargs)
-            if [ "$STATUS" = "Accepted" ]; then
-              echo "Notarization succeeded for ${{ matrix.platform }}!"
-              break
-            elif [ "$STATUS" = "In Progress" ]; then
-              echo "Notarization in progress, retrying in 600 seconds..."
-              sleep 600
-              ATTEMPT=$((ATTEMPT + 1))
-            else
-              echo "Notarization failed with status: $STATUS"
-              exit 1
-            fi
-            if [ $ATTEMPT -eq $MAX_ATTEMPTS ]; then
-              echo "Max attempts reached, notarization still in progress."
-              exit 1
-            fi
-          done
+        timeout-minutes: 16
+        run: node scripts/notarize-release.cjs submit ${{ matrix.platform }}
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Build Windows
         if: matrix.platform == 'windows'
@@ -197,6 +183,37 @@ jobs:
       - name: Smoke test packaged modules (offline)
         timeout-minutes: 10
         run: node scripts/test-built-package.cjs
+
+      # Cache only after the packaged checks pass. Cleanup is fail-closed: an
+      # unavailable/unclean cache may be skipped, but can never upload private artifacts.
+      - name: Prepare public Rust dependency cache
+        id: rust-cache-ready
+        if: steps.rust-cache.outputs.cache-primary-key != '' && steps.rust-cache.outputs.cache-hit != 'true'
+        continue-on-error: true
+        run: node scripts/rust-dependency-cache.cjs clean
+
+      - name: Save public Rust dependencies
+        if: steps.rust-cache.outputs.cache-primary-key != '' && steps.rust-cache.outputs.cache-hit != 'true' && steps.rust-cache-ready.outcome == 'success'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            ~/.cargo/registry/cache/index.crates.io-*
+            ~/.cargo/registry/index/index.crates.io-*
+            native/gank-core/target
+          key: ${{ steps.rust-cache.outputs.cache-primary-key }}
+
+      # Apple processes the submission while the offline packaged checks run.
+      # Publishing below requires both the tests and an Accepted verdict.
+      - name: Wait for notarization acceptance
+        if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'
+        timeout-minutes: 92
+        run: node scripts/notarize-release.cjs wait
+        env:
+          NOTARIZATION_ID: ${{ steps.notarization.outputs.submission_id }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
 
       - name: Release Mac
         if: matrix.platform == 'mac-x64' || matrix.platform == 'mac-arm64'

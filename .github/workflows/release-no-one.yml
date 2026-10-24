@@ -11,6 +11,11 @@ on:
         description: 'Branch to checkout from private repository (e.g., dev, main)'
         required: true
         default: 'dev'
+      full_validation:
+        description: 'Run full regression (use after Electron, protection or core behaviour changes)'
+        type: boolean
+        required: false
+        default: false
   push:
     tags:
       - v*.*.*
@@ -183,6 +188,8 @@ jobs:
       - name: Smoke test packaged modules (offline)
         timeout-minutes: 10
         run: node scripts/test-built-package.cjs
+        env:
+          GANK_PACKAGE_CHECKS: ${{ github.event.inputs.full_validation == 'true' && 'full' || 'smoke' }}
 
       # Cache only after the packaged checks pass. Cleanup is fail-closed: an
       # unavailable/unclean cache may be skipped, but can never upload private artifacts.
